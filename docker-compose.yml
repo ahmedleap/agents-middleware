@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  trading-middleware:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-middleware
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      API_PREFIX: api/v1
+      BACKEND_BASE_URL: http://java-backend:8080
+      BACKEND_LOGIN_ENDPOINT: /auth/login
+      BACKEND_REFRESH_ENDPOINT: /auth/refresh
+      BACKEND_USER_ENDPOINT: /users/{userId}
+      BACKEND_TIMEOUT_MS: 30000
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      JWT_ACCESS_TOKEN_EXPIRY: 900
+      JWT_REFRESH_TOKEN_EXPIRY: 900
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_ATTEMPTS: 3
+      RATE_LIMIT_LOCKOUT_DURATION_MS: 900000
+      LOG_LEVEL: debug
+      CORS_ORIGIN: http://localhost:4200
+      CORS_CREDENTIALS: 'true'
+    volumes:
+      - ./src:/app/src
+      - ./node_modules:/app/node_modules
+    networks:
+      - trading-network
+    depends_on:
+      - java-backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Placeholder for Java backend (replace with actual backend service)
+  java-backend:
+    image: java-backend:latest
+    container_name: java-backend
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trading_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    networks:
+      - trading-network
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trading_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - trading-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  trading-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
