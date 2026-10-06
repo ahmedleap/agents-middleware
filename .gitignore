@@ -3,40 +3,92 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 # Build output
 dist/
 build/
+*.tsbuildinfo
 
-# Environment
+# Environment files
 .env
 .env.local
 .env.*.local
+.env.test
+.env.test.local
 
-# IDE
+# Security - Never commit private keys or sensitive files
+private_key.pem
+*.key
+*.pem
+*.cert
+*.crt
+secrets/
+.env.prod
+.env.production
+
+# IDE & Editor
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 .DS_Store
+.vscode/*
+!.vscode/extensions.json
 
-# Test coverage
+# Test coverage & reporting
 coverage/
 *.lcov
+test-results/
+junit.xml
+cypress/screenshots/
+cypress/videos/
 
 # Logs
 logs/
 *.log
+npm-loglevel.log
 
 # Temporary files
 .cache/
 tmp/
 temp/
+*.tmp
 
 # Docker
-.docker/
-docker-compose.prod.yml
+docker-compose.local.yml
+docker-compose.override.yml
+.dockerignore
+Dockerfile.dev
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Package managers
+.npm
+.yarn/cache
+.yarn/install-state.gz
+
+# Database
+*.sql
+*.db
+*.sqlite
+postgres_data/
+dump.sql
 
 # Git
 .git/
+.gitignore
+
+# Node modules lock files (optional, based on preference)
+# Uncomment if you want to commit lock file
+# package-lock.json
+# yarn.lock
+
+# Misc
+.env.example
+.env.*.example

@@ -30,6 +30,10 @@ RUN npm ci --only=production
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 
+# Copy public key (if available, for verification)
+# Note: Private key should NOT be in the image - it must be injected via environment variables
+COPY public_key.pem ./public_key.pem 2>/dev/null || true
+
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S nodejs -u 1001

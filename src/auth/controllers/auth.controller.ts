@@ -7,13 +7,27 @@ import {
   Logger,
 } from '@nestjs/common';
 import { AuthService } from '../services/auth.service';
-import { LoginDto, RefreshTokenDto, LogoutDto } from '../dto/auth.dto';
+import { LoginDto, SignupDto, RefreshTokenDto, LogoutDto } from '../dto/auth.dto';
 
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
   constructor(private authService: AuthService) {}
+
+  @Post('signup')
+  @HttpCode(HttpStatus.CREATED)
+  async signup(@Body() signupDto: SignupDto) {
+    this.logger.debug(`Signup attempt for email: ${signupDto.email}`);
+    return this.authService.signup(
+      signupDto.email,
+      signupDto.password,
+      signupDto.firstName,
+      signupDto.lastName,
+      signupDto.phoneNumber,
+      signupDto.country,
+    );
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -42,7 +56,7 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(@Body() logoutDto: LogoutDto) {
-    await this.authService.logout(logoutDto.clientId, logoutDto.accessToken, logoutDto.refreshToken);
+    await this.authService.logout(logoutDto.clientId, logoutDto.refreshToken);
     return { message: 'Logout successful', success: true };
   }
 }

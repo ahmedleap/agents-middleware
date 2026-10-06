@@ -214,21 +214,18 @@ describe('AuthService', () => {
   });
 
   describe('logout', () => {
-    it('should successfully logout user with both tokens', async () => {
+    it('should successfully logout user with refresh token', async () => {
       jest.spyOn(jwtTokenService, 'verifyToken').mockReturnValue({
         clientId: 'test-client-123',
         email: 'test@example.com',
       });
-      jest.spyOn(backendIntegrationService, 'logout').mockResolvedValue(undefined);
 
       await expect(
-        service.logout('test-client-123', 'mock-access-token', 'mock-refresh-token'),
+        service.logout('test-client-123', 'mock-refresh-token'),
       ).resolves.toBeUndefined();
-
-      expect(backendIntegrationService.logout).toHaveBeenCalledWith('test-client-123');
     });
 
-    it('should throw error for invalid access token during logout', async () => {
+    it('should throw error for invalid refresh token during logout', async () => {
       jest.spyOn(jwtTokenService, 'verifyToken').mockReturnValue(null);
 
       await expect(
@@ -243,42 +240,8 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.logout('test-client-123', 'mock-access-token'),
+        service.logout('test-client-123', 'mock-refresh-token'),
       ).rejects.toThrow(HttpException);
-    });
-
-    it('should blacklist access token after logout', async () => {
-      jest.spyOn(jwtTokenService, 'verifyToken').mockReturnValue({
-        clientId: 'test-client-123',
-        email: 'test@example.com',
-      });
-      jest.spyOn(backendIntegrationService, 'logout').mockResolvedValue(undefined);
-
-      await service.logout('test-client-123', 'mock-access-token', 'mock-refresh-token');
-
-      // After logout, token validation should fail
-      jest.spyOn(jwtTokenService, 'verifyToken').mockReturnValue({
-        clientId: 'test-client-123',
-        email: 'test@example.com',
-      });
-
-      const isValid = service.validateAccessToken('mock-access-token');
-      expect(isValid).toBe(false);
-    });
-
-    it('should handle backend logout failure gracefully', async () => {
-      jest.spyOn(jwtTokenService, 'verifyToken').mockReturnValue({
-        clientId: 'test-client-123',
-        email: 'test@example.com',
-      });
-      jest
-        .spyOn(backendIntegrationService, 'logout')
-        .mockRejectedValue(new Error('Backend error'));
-
-      // Should not throw - fails gracefully
-      await expect(
-        service.logout('test-client-123', 'mock-access-token'),
-      ).resolves.toBeUndefined();
     });
   });
 });

@@ -12,27 +12,51 @@ services:
       NODE_ENV: development
       PORT: 3001
       API_PREFIX: api/v1
+      
+      # Database Configuration
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: trading_db
+      DATABASE_SSL: 'false'
+      
+      # JWT Configuration (RSA Keys - from .env)
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      JWT_ACCESS_TOKEN_EXPIRY: 300
+      JWT_REFRESH_TOKEN_EXPIRY: 600
+      
+      # Rate Limiting
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_ATTEMPTS: 3
+      RATE_LIMIT_LOCKOUT_DURATION_MS: 900000
+      
+      # Backend Integration
       BACKEND_BASE_URL: http://java-backend:8080
       BACKEND_LOGIN_ENDPOINT: /auth/login
       BACKEND_REFRESH_ENDPOINT: /auth/refresh
       BACKEND_USER_ENDPOINT: /users/{userId}
       BACKEND_TIMEOUT_MS: 30000
-      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
-      JWT_ACCESS_TOKEN_EXPIRY: 900
-      JWT_REFRESH_TOKEN_EXPIRY: 900
-      RATE_LIMIT_WINDOW_MS: 900000
-      RATE_LIMIT_MAX_ATTEMPTS: 3
-      RATE_LIMIT_LOCKOUT_DURATION_MS: 900000
+      
+      # Logging & CORS
       LOG_LEVEL: debug
       CORS_ORIGIN: http://localhost:4200
       CORS_CREDENTIALS: 'true'
+      
+      # Password Validation
+      PASSWORD_MIN_LENGTH: 8
+      
     volumes:
       - ./src:/app/src
       - ./node_modules:/app/node_modules
     networks:
       - trading-network
     depends_on:
-      - java-backend
+      postgres:
+        condition: service_healthy
+      java-backend:
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/health"]

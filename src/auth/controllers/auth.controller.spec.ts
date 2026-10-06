@@ -120,28 +120,26 @@ describe('AuthController', () => {
 
       const result = await controller.logout({
         clientId: 'test-client-123',
-        accessToken: 'mock-access-token',
         refreshToken: 'mock-refresh-token',
       });
 
       expect(result).toEqual({ message: 'Logout successful', success: true });
       expect(authService.logout).toHaveBeenCalledWith(
         'test-client-123',
-        'mock-access-token',
         'mock-refresh-token',
       );
     });
 
-    it('should work with just access token', async () => {
+    it('should work with refresh token', async () => {
       jest.spyOn(authService, 'logout').mockResolvedValue(undefined);
 
       const result = await controller.logout({
         clientId: 'test-client-123',
-        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
       });
 
       expect(result).toEqual({ message: 'Logout successful', success: true });
-      expect(authService.logout).toHaveBeenCalledWith('test-client-123', 'mock-access-token', undefined);
+      expect(authService.logout).toHaveBeenCalledWith('test-client-123', 'mock-refresh-token');
     });
   });
 });

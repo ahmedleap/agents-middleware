@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import { ConfigService } from '../../config/config.service';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface TokenPayload {
   clientId: string;
   email: string;
   role?: string;
+  jti?: string; // JWT ID for tracking
   iat?: number;
   exp?: number;
 }
@@ -19,39 +21,54 @@ export interface TokenPair {
 
 @Injectable()
 export class JwtTokenService {
-  private readonly jwtSecret: string;
+  private readonly privateKey: string;
+  private readonly publicKey: string;
   private readonly accessTokenExpiry: number;
   private readonly refreshTokenExpiry: number;
 
   constructor(private configService: ConfigService) {
-    this.jwtSecret = this.configService.get('JWT_SECRET');
-    this.accessTokenExpiry = this.configService.getNumber('JWT_ACCESS_TOKEN_EXPIRY', 900); // 15 min
-    this.refreshTokenExpiry = this.configService.getNumber('JWT_REFRESH_TOKEN_EXPIRY', 900); // 15 min
+    this.privateKey = this.configService.getJwtPrivateKey();
+    this.publicKey = this.configService.getJwtPublicKey();
+    this.accessTokenExpiry = this.configService.getNumber('JWT_ACCESS_TOKEN_EXPIRY', 300); // 5 min
+    this.refreshTokenExpiry = this.configService.getNumber('JWT_REFRESH_TOKEN_EXPIRY', 600); // 10 min
 
-    if (!this.jwtSecret) {
-      throw new Error('JWT_SECRET is not configured');
+    if (!this.privateKey || !this.publicKey) {
+      throw new Error('JWT_PRIVATE_KEY and JWT_PUBLIC_KEY must be configured');
     }
   }
 
   /**
-   * Generate a pair of access and refresh tokens
+   * Generate a pair of access and refresh tokens using asymmetric RSA signing
    */
-  generateTokenPair(payload: Omit<TokenPayload, 'iat' | 'exp'>): TokenPair {
+  generateTokenPair(payload: Omit<TokenPayload, 'iat' | 'exp' | 'jti'>): TokenPair {
     const now = Math.floor(Date.now() / 1000);
+    const accessTokenJti = uuidv4();
+    const refreshTokenJti = uuidv4();
+
     const accessTokenPayload: TokenPayload = {
       ...payload,
+      jti: accessTokenJti,
       iat: now,
       exp: now + this.accessTokenExpiry,
     };
 
     const refreshTokenPayload: TokenPayload = {
       ...payload,
+      jti: refreshTokenJti,
       iat: now,
       exp: now + this.refreshTokenExpiry,
     };
 
-    const accessToken = jwt.sign(accessTokenPayload, this.jwtSecret);
-    const refreshToken = jwt.sign(refreshTokenPayload, this.jwtSecret);
+    // Sign with private key using RS256 algorithm (asymmetric)
+    const accessToken = jwt.sign(accessTokenPayload, this.privateKey, {
+      algorithm: 'RS256',
+      noTimestamp: false,
+    });
+
+    const refreshToken = jwt.sign(refreshTokenPayload, this.privateKey, {
+      algorithm: 'RS256',
+      noTimestamp: false,
+    });
 
     return {
       accessToken,
@@ -62,11 +79,13 @@ export class JwtTokenService {
   }
 
   /**
-   * Verify and decode a token
+   * Verify and decode a token using the public key
    */
   verifyToken(token: string): TokenPayload | null {
     try {
-      const decoded = jwt.verify(token, this.jwtSecret) as TokenPayload;
+      const decoded = jwt.verify(token, this.publicKey, {
+        algorithms: ['RS256'],
+      }) as TokenPayload;
       return decoded;
     } catch (error) {
       return null;
