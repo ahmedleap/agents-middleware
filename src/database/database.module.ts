@@ -5,6 +5,7 @@ import { AuthSession } from '../auth/entities/auth-session.entity';
 import { Client } from '../auth/entities/client.entity';
 
 @Module({
+  providers: [ConfigService],
   imports: [
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
