@@ -33,8 +33,6 @@ test
 *.spec.ts
 *.test.ts
 jest.config.js
-tsconfig.json
-tsconfig.build.json
 cypress/
 
 # IDE & Editor
