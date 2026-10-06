@@ -28,7 +28,6 @@ private_key.pem
 secrets/
 
 # Source & Development (not needed in production image)
-src
 test
 *.spec.ts
 *.test.ts
