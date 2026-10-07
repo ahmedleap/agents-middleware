@@ -5,7 +5,7 @@
 
 param(
     [string]$ApiUrl = "http://localhost:3001",
-    [string]$DatabaseUrl = "postgresql://postgres:postgres@localhost:5432/trading_db"
+    [string]$DatabaseUrl = ""
 )
 
 # Test configuration
