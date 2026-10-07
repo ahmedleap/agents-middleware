@@ -1,6 +1,6 @@
 {
   "name": "trading-middleware",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "NestJS middleware for authentication and authorization between Angular frontend and Java backend",
   "author": "Trading Platform Team",
   "private": true,

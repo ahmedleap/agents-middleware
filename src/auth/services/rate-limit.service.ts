@@ -1,5 +1,4 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '../../config/config.service';
+import { Injectable, Logger } from '@nestjs/common';
 
 interface LoginAttempt {
   count: number;
@@ -8,22 +7,25 @@ interface LoginAttempt {
 }
 
 /**
- * In-memory rate limiter for login attempts
- * In production, consider using Redis for distributed systems
+ * Rate Limiter for Login Attempts
+ * 
+ * Security Policy:
+ * - 3 failed login attempts trigger a 15-minute lockout
+ * - Attempts during lockout reset the timer (no penalty to counter)
+ * - Successful login clears all attempts and lockout
+ * - In-memory storage (use Redis in distributed systems)
  */
 @Injectable()
 export class RateLimitService {
+  private readonly logger = new Logger(RateLimitService.name);
   private loginAttempts: Map<string, LoginAttempt> = new Map();
-  private readonly windowMs: number;
-  private readonly maxAttempts: number;
-  private readonly lockoutDurationMs: number;
+  
+  // Hardcoded security constants
+  private readonly MAX_FAILED_ATTEMPTS = 3;
+  private readonly LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
   private cleanupInterval: NodeJS.Timeout;
 
-  constructor(private configService: ConfigService) {
-    this.windowMs = this.configService.getNumber('RATE_LIMIT_WINDOW_MS', 900000); // 15 min
-    this.maxAttempts = this.configService.getNumber('RATE_LIMIT_MAX_ATTEMPTS', 3);
-    this.lockoutDurationMs = this.configService.getNumber('RATE_LIMIT_LOCKOUT_DURATION_MS', 900000); // 15 min
-
+  constructor() {
     // Clean up old entries every 5 minutes
     this.cleanupInterval = setInterval(() => {
       this.cleanup();
@@ -37,109 +39,166 @@ export class RateLimitService {
   }
 
   /**
-   * Record a failed login attempt for the given email/identifier
-   * Returns true if the attempt was recorded, false if account is locked
+   * Check if account is currently locked (read-only, no state changes)
+   * 
+   * @param identifier - Email or username
+   * @returns true if locked and lockout has not expired
    */
-  recordFailedAttempt(identifier: string): boolean {
-    const now = Date.now();
+  isCurrentlyLocked(identifier: string): boolean {
     const attempt = this.loginAttempts.get(identifier);
-
-    // Check if account is locked
-    if (attempt?.lockedUntil && now < attempt.lockedUntil) {
+    if (!attempt || !attempt.lockedUntil) {
       return false;
     }
 
-    // Clear lockout if expired
+    const now = Date.now();
+    return now < attempt.lockedUntil;
+  }
+
+  /**
+   * Reset lockout timer on login attempt during lockout
+   * Does not increment counter, just extends the lockout timer
+   * 
+   * @param identifier - Email or username
+   */
+  resetLockoutTimer(identifier: string): void {
+    const attempt = this.loginAttempts.get(identifier);
+    if (attempt && attempt.lockedUntil) {
+      const now = Date.now();
+      if (now < attempt.lockedUntil) {
+        // Still locked - reset timer to 15 minutes from now
+        const previousLockoutTime = attempt.lockedUntil;
+        attempt.lockedUntil = now + this.LOCKOUT_DURATION_MS;
+        
+        this.logger.warn(
+          `Lockout timer reset for identifier: ${identifier}, ` +
+          `previous: ${new Date(previousLockoutTime).toISOString()}, ` +
+          `new: ${new Date(attempt.lockedUntil).toISOString()}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Record a failed login attempt for the given identifier
+   * Increments counter and locks account if max attempts reached
+   * 
+   * @param identifier - Email or username
+   * @returns true if attempt was recorded, false if account is now locked
+   */
+  recordFailedAttempt(identifier: string): boolean {
+    const now = Date.now();
+    let attempt = this.loginAttempts.get(identifier);
+
+    // Check if lockout has expired
     if (attempt?.lockedUntil && now >= attempt.lockedUntil) {
+      // Lockout expired - reset for new attempt cycle
       attempt.lockedUntil = undefined;
       attempt.count = 0;
       attempt.firstAttemptTime = now;
+      
+      this.logger.debug(
+        `Lockout expired for identifier: ${identifier}, ` +
+        `resetting attempt counter`,
+      );
     }
 
-    // Initialize or update attempt
+    // Initialize new entry if doesn't exist
     if (!attempt) {
       this.loginAttempts.set(identifier, {
         count: 1,
         firstAttemptTime: now,
       });
+      
+      this.logger.warn(
+        `Failed login attempt [1/${this.MAX_FAILED_ATTEMPTS}] for identifier: ${identifier}`,
+      );
+      
+      return true;
+    }
+
+    // Increment counter
+    attempt.count++;
+
+    if (attempt.count < this.MAX_FAILED_ATTEMPTS) {
+      // Still under max attempts
+      this.logger.warn(
+        `Failed login attempt [${attempt.count}/${this.MAX_FAILED_ATTEMPTS}] for identifier: ${identifier}`,
+      );
+      
+      return true;
     } else {
-      // If outside the time window, reset
-      if (now - attempt.firstAttemptTime > this.windowMs) {
-        this.loginAttempts.set(identifier, {
-          count: 1,
-          firstAttemptTime: now,
-        });
-      } else {
-        // Still within window, increment
-        attempt.count++;
-
-        // Lock account if max attempts exceeded
-        if (attempt.count >= this.maxAttempts) {
-          attempt.lockedUntil = now + this.lockoutDurationMs;
-          return false;
-        }
-      }
-    }
-
-    return true;
-  }
-
-  /**
-   * Check if an account is currently locked
-   */
-  isLocked(identifier: string): boolean {
-    const attempt = this.loginAttempts.get(identifier);
-    if (!attempt || !attempt.lockedUntil) {
+      // Reached max attempts - lock account
+      attempt.lockedUntil = now + this.LOCKOUT_DURATION_MS;
+      
+      this.logger.error(
+        `Account locked after ${this.MAX_FAILED_ATTEMPTS} failed attempts for identifier: ${identifier}, ` +
+        `locked until: ${new Date(attempt.lockedUntil).toISOString()}`,
+      );
+      
       return false;
     }
-    const now = Date.now();
-    if (now >= attempt.lockedUntil) {
-      attempt.lockedUntil = undefined;
-      attempt.count = 0;
-      return false;
-    }
-    return true;
   }
 
   /**
    * Get lockout time remaining in milliseconds
+   * 
+   * @param identifier - Email or username
+   * @returns Milliseconds until lockout expires, or 0 if not locked
    */
   getLockoutTimeRemaining(identifier: string): number {
     const attempt = this.loginAttempts.get(identifier);
     if (!attempt || !attempt.lockedUntil) {
       return 0;
     }
+
     const now = Date.now();
     if (now >= attempt.lockedUntil) {
       return 0;
     }
+
     return attempt.lockedUntil - now;
   }
 
   /**
-   * Clear attempts for an identifier (e.g., on successful login)
+   * Clear all attempts for an identifier (e.g., on successful login)
+   * 
+   * @param identifier - Email or username
    */
   clearAttempts(identifier: string): void {
+    const hadAttempts = this.loginAttempts.has(identifier);
     this.loginAttempts.delete(identifier);
+    
+    if (hadAttempts) {
+      this.logger.debug(
+        `Cleared login attempts for identifier: ${identifier}`,
+      );
+    }
   }
 
   /**
-   * Cleanup old entries that are no longer relevant
+   * Cleanup old entries to prevent memory leaks
+   * Removes entries that have been locked for more than 30 minutes
+   * 
+   * @private
    */
   private cleanup(): void {
     const now = Date.now();
     const entriesToDelete: string[] = [];
+    const thirtyMinutesMs = 30 * 60 * 1000;
 
     this.loginAttempts.forEach((attempt, identifier) => {
-      // Remove entries older than 2x the window or if lock has expired and count is 0
+      // Remove if lockout expired more than 30 minutes ago
       if (
-        now - attempt.firstAttemptTime > this.windowMs * 2 ||
-        (attempt.lockedUntil && now > attempt.lockedUntil + this.windowMs)
+        attempt.lockedUntil &&
+        now - attempt.lockedUntil > thirtyMinutesMs
       ) {
         entriesToDelete.push(identifier);
       }
     });
 
-    entriesToDelete.forEach((id) => this.loginAttempts.delete(id));
+    if (entriesToDelete.length > 0) {
+      entriesToDelete.forEach((id) => this.loginAttempts.delete(id));
+      this.logger.debug(`Cleaned up ${entriesToDelete.length} expired rate limit entries`);
+    }
   }
 }

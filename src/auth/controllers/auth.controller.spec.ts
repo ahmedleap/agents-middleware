@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from '../controllers/auth.controller';
 import { AuthService } from '../services/auth.service';
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { UserRole } from '../types/jwt-types';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -16,7 +17,7 @@ describe('AuthController', () => {
       email: 'test@example.com',
       firstName: 'Test',
       lastName: 'User',
-      role: 'CLIENT',
+      role: UserRole.CLIENT,
     },
     dashboard: {
       accounts: [],

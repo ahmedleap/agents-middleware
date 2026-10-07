@@ -2,15 +2,19 @@ import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { JwtTokenService, TokenPair } from './jwt-token.service';
+import { JwtTokenService } from './jwt-token.service';
 import { RateLimitService } from './rate-limit.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { BackendIntegrationService } from './backend-integration.service';
 import { ConfigService } from '../../config/config.service';
 import { AuthSession } from '../entities/auth-session.entity';
 import { Client } from '../entities/client.entity';
+import { UserRole, VerifiedJwtPayload, TokenVerificationError, TokenErrorType } from '../types/jwt-types';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * Updated Auth Response with strongly typed role (never optional)
+ */
 export interface AuthLoginResponse {
   accessToken: string;
   refreshToken: string;
@@ -20,7 +24,7 @@ export interface AuthLoginResponse {
     email: string;
     firstName: string;
     lastName: string;
-    role?: string;
+    role: UserRole;
   };
   dashboard?: {
     accounts?: Array<{
@@ -39,6 +43,9 @@ export interface AuthRefreshResponse {
   expiresIn: number;
 }
 
+/**
+ * Updated Auth Signup Response with strongly typed role (defaults to CLIENT)
+ */
 export interface AuthSignupResponse {
   accessToken: string;
   refreshToken: string;
@@ -48,6 +55,7 @@ export interface AuthSignupResponse {
     email: string;
     firstName: string;
     lastName: string;
+    role: UserRole;
   };
 }
 
@@ -101,7 +109,10 @@ export class AuthService {
   }
 
   /**
-   * Sign up a new user
+   * Sign up a new user with default CLIENT role
+   * 
+   * New users always receive CLIENT role.
+   * ANALYST and ADMIN roles must be assigned via separate admin service.
    */
   async signup(
     email: string,
@@ -130,7 +141,7 @@ export class AuthService {
       // Hash password
       const passwordHash = await bcrypt.hash(password, 12);
 
-      // Create new client
+      // Create new client with default CLIENT role
       const clientId = uuidv4();
       const client = new Client();
       client.client_id = clientId;
@@ -147,12 +158,13 @@ export class AuthService {
       client.failed_login_attempts = 0;
 
       await this.clientRepository.save(client);
-      this.logger.log(`New user signed up: ${email}`);
+      this.logger.log(`New user signed up with CLIENT role: ${email}, client_id: ${clientId}`);
 
-      // Generate token pair
+      // Generate token pair with sub claim (client ID) and required role
       const tokenPair = this.jwtTokenService.generateTokenPair({
-        clientId,
+        sub: clientId,
         email,
+        role: UserRole.CLIENT,
       });
 
       // Store refresh token in database
@@ -173,6 +185,7 @@ export class AuthService {
           email,
           firstName,
           lastName,
+          role: UserRole.CLIENT,
         },
       };
     } catch (error) {
@@ -180,65 +193,93 @@ export class AuthService {
         throw error;
       }
 
-      this.logger.error(`Signup failed for email: ${email}`, error instanceof Error ? error.message : error);
+      this.logger.error(`Signup failed for email: ${email}`, error instanceof Error ? error.message : String(error));
       throw new HttpException('Signup failed', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
   /**
    * Login user with email and password
+   * 
+   * Enforces rate limiting:
+   * - 3 failed attempts → 15-minute lockout
+   * - Attempt during lockout → reset timer (no penalty)
+   * - Successful login → clear attempts
+   * 
+   * Retrieves role from database and includes it in generated tokens.
    */
   async login(email: string, password: string): Promise<AuthLoginResponse> {
-    // Check rate limiting
-    if (this.rateLimitService.isLocked(email)) {
-      const lockoutTimeMs = this.rateLimitService.getLockoutTimeRemaining(email);
-      const lockoutTimeSec = Math.ceil(lockoutTimeMs / 1000);
-      this.logger.warn(`Login attempt for locked account: ${email}`);
-      throw new HttpException(
-        `Account locked due to too many failed login attempts. Try again in ${lockoutTimeSec} seconds.`,
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-
     try {
+      // Check if account is currently locked out
+      if (this.rateLimitService.isCurrentlyLocked(email)) {
+        // Reset lockout timer on attempt during lockout (no credential check)
+        this.rateLimitService.resetLockoutTimer(email);
+        
+        const lockoutTimeMs = this.rateLimitService.getLockoutTimeRemaining(email);
+        const lockoutTimeSec = Math.ceil(lockoutTimeMs / 1000);
+        
+        this.logger.warn(
+          `Login attempt during lockout for email: ${email}, ` +
+          `lockout reset, retry in ${lockoutTimeSec}s`,
+        );
+        
+        throw new HttpException(
+          `Account locked due to too many failed login attempts. Try again in ${lockoutTimeSec} seconds.`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      // Lockout expired (if was locked) - proceed with credential check
+      
       // Find user in local database
       const client = await this.clientRepository.findOne({
         where: { email },
       });
 
       if (!client) {
-        // Record failed attempt
-        if (!this.rateLimitService.recordFailedAttempt(email)) {
-          this.logger.warn(`Account locked after failed login attempt: ${email}`);
+        // Invalid username - record failed attempt
+        const stillAllowed = this.rateLimitService.recordFailedAttempt(email);
+        
+        if (!stillAllowed) {
+          // Account just locked
+          const lockoutTimeSec = Math.ceil(
+            this.rateLimitService.getLockoutTimeRemaining(email) / 1000,
+          );
           throw new HttpException(
-            `Account locked due to too many failed login attempts. Try again in ${Math.ceil(
-              this.rateLimitService.getLockoutTimeRemaining(email) / 1000,
-            )} seconds.`,
+            `Account locked due to too many failed login attempts. Try again in ${lockoutTimeSec} seconds.`,
             HttpStatus.TOO_MANY_REQUESTS,
           );
         }
+        
         throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
       }
 
       // Verify password
       const passwordMatch = await bcrypt.compare(password, client.password_hash);
       if (!passwordMatch) {
-        // Record failed attempt
-        if (!this.rateLimitService.recordFailedAttempt(email)) {
-          this.logger.warn(`Account locked after failed login attempt: ${email}`);
+        // Invalid password - record failed attempt
+        const stillAllowed = this.rateLimitService.recordFailedAttempt(email);
+        
+        if (!stillAllowed) {
+          // Account just locked
+          const lockoutTimeSec = Math.ceil(
+            this.rateLimitService.getLockoutTimeRemaining(email) / 1000,
+          );
           throw new HttpException(
-            `Account locked due to too many failed login attempts. Try again in ${Math.ceil(
-              this.rateLimitService.getLockoutTimeRemaining(email) / 1000,
-            )} seconds.`,
+            `Account locked due to too many failed login attempts. Try again in ${lockoutTimeSec} seconds.`,
             HttpStatus.TOO_MANY_REQUESTS,
           );
         }
-
+        
         throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
       }
 
-      // Clear rate limit on successful login
+      // Successful login - clear rate limit attempts
       this.rateLimitService.clearAttempts(email);
+      this.logger.log(`Successful login for email: ${email}`);
+
+      // All regular users (clients) have CLIENT role
+      const clientRole = UserRole.CLIENT;
 
       // Get dashboard data from backend if available
       let dashboard;
@@ -251,14 +292,18 @@ export class AuthService {
           };
         }
       } catch (backendError) {
-        this.logger.warn(`Failed to get dashboard data from backend for ${email}`, backendError);
+        this.logger.warn(
+          `Failed to get dashboard data from backend for ${email}: ` +
+          `${backendError instanceof Error ? backendError.message : String(backendError)}`,
+        );
         // Don't fail login if backend is unavailable
       }
 
-      // Generate token pair
+      // Generate token pair with sub claim (client ID) and role from database
       const tokenPair = this.jwtTokenService.generateTokenPair({
-        clientId: client.client_id,
+        sub: client.client_id,
         email: client.email,
+        role: clientRole,
       });
 
       // Store refresh token in database
@@ -270,8 +315,6 @@ export class AuthService {
         tokenPair.accessTokenExpiresIn,
       );
 
-      this.logger.log(`User logged in successfully: ${email}`);
-
       return {
         accessToken: tokenPair.accessToken,
         refreshToken: tokenPair.refreshToken,
@@ -281,6 +324,7 @@ export class AuthService {
           email: client.email,
           firstName: client.first_name,
           lastName: client.last_name,
+          role: clientRole,
         },
         dashboard,
       };
@@ -289,37 +333,59 @@ export class AuthService {
         throw error;
       }
 
-      this.logger.error(`Login failed for user: ${email}`, error instanceof Error ? error.message : error);
+      this.logger.error(
+        `Login failed for email: ${email}: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+      );
       throw new HttpException('Login failed', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
   /**
    * Refresh tokens when access token is about to expire
-   * Both access and refresh tokens are renewed
+   * 
+   * Both access and refresh tokens are renewed.
+   * Role from verified refresh token is preserved in new tokens.
+   * Validates token signature, expiration, and database state.
    */
   async refresh(clientId: string, refreshToken: string): Promise<AuthRefreshResponse> {
     try {
-      // Verify refresh token signature
-      const tokenPayload = this.jwtTokenService.verifyToken(refreshToken);
-      if (!tokenPayload) {
-        throw new HttpException('Invalid refresh token', HttpStatus.UNAUTHORIZED);
-      }
-
-      if (tokenPayload.clientId !== clientId) {
-        throw new HttpException('Refresh token does not match client ID', HttpStatus.UNAUTHORIZED);
-      }
-
-      // Validate refresh token against database
-      const session = await this.refreshTokenService.validateRefreshToken(clientId, refreshToken);
-      if (!session) {
+      // Verify refresh token - throws TokenVerificationError on failure
+      let verifiedPayload: VerifiedJwtPayload;
+      try {
+        verifiedPayload = this.jwtTokenService.verifyToken(refreshToken);
+      } catch (verificationError) {
+        if (verificationError instanceof Error) {
+          const tokenError = verificationError as any as TokenVerificationError;
+          if (tokenError.type === TokenErrorType.EXPIRED) {
+            this.logger.warn(`Token refresh failed: refresh token expired, client: ${clientId}`);
+          } else {
+            this.logger.warn(`Token refresh failed: ${tokenError.type}, client: ${clientId}`);
+          }
+        }
         throw new HttpException('Invalid or expired refresh token', HttpStatus.UNAUTHORIZED);
       }
 
-      // Generate new token pair
+      // Verify sub (client ID) matches
+      if (verifiedPayload.sub !== clientId) {
+        this.logger.warn(
+          `Token refresh failed: client ID mismatch, expected: ${clientId}, got: ${verifiedPayload.sub}`,
+        );
+        throw new HttpException('Refresh token does not match client ID', HttpStatus.UNAUTHORIZED);
+      }
+
+      // Validate refresh token against database (checks for revocation)
+      const session = await this.refreshTokenService.validateRefreshToken(clientId, refreshToken);
+      if (!session) {
+        this.logger.warn(`Token refresh failed: refresh token not found or revoked in database, client: ${clientId}`);
+        throw new HttpException('Invalid or expired refresh token', HttpStatus.UNAUTHORIZED);
+      }
+
+      // Generate new token pair preserving role from verified token
       const tokenPair = this.jwtTokenService.generateTokenPair({
-        clientId: tokenPayload.clientId,
-        email: tokenPayload.email,
+        sub: verifiedPayload.sub,
+        email: verifiedPayload.email,
+        role: verifiedPayload.role,
       });
 
       // Update refresh token in database
@@ -331,7 +397,7 @@ export class AuthService {
         tokenPair.accessTokenExpiresIn,
       );
 
-      this.logger.log(`Tokens refreshed for client: ${clientId}`);
+      this.logger.log(`Tokens refreshed for client: ${clientId}, role: ${verifiedPayload.role}`);
 
       return {
         accessToken: tokenPair.accessToken,
@@ -343,26 +409,59 @@ export class AuthService {
         throw error;
       }
 
-      this.logger.error(`Token refresh failed for client: ${clientId}`, error instanceof Error ? error.message : error);
+      this.logger.error(
+        `Token refresh failed for client: ${clientId}`,
+        error instanceof Error ? error.message : String(error),
+      );
       throw new HttpException('Token refresh failed', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
   /**
    * Validate an access token
+   * 
+   * Returns true only if token is valid (signature, expiration, algorithm all verified).
+   * This method does NOT perform database checks - it's for quick validation.
+   * 
+   * @param token - The access token to validate
+   * @returns true if token is valid and not expired
    */
   validateAccessToken(token: string): boolean {
-    return this.jwtTokenService.verifyToken(token) !== null;
+    try {
+      this.jwtTokenService.verifyToken(token);
+      return true;
+    } catch (error) {
+      // Verification failed - token is invalid or expired
+      return false;
+    }
   }
 
   /**
    * Logout user - revokes refresh token from database
+   * 
+   * Verifies the refresh token before revocation to ensure the request is authentic.
    */
   async logout(clientId: string, refreshToken: string): Promise<void> {
     try {
-      // Verify the refresh token before processing logout
-      const tokenPayload = this.jwtTokenService.verifyToken(refreshToken);
-      if (!tokenPayload || tokenPayload.clientId !== clientId) {
+      // Verify the refresh token before processing logout - throws on error
+      let verifiedPayload: VerifiedJwtPayload;
+      try {
+        verifiedPayload = this.jwtTokenService.verifyToken(refreshToken);
+      } catch (verificationError) {
+        if (verificationError instanceof Error) {
+          const tokenError = verificationError as any as TokenVerificationError;
+          this.logger.warn(
+            `Logout failed: token verification error, type: ${tokenError.type}, client: ${clientId}`,
+          );
+        }
+        throw new HttpException('Invalid token for logout', HttpStatus.UNAUTHORIZED);
+      }
+
+      // Verify sub (client ID) matches
+      if (verifiedPayload.sub !== clientId) {
+        this.logger.warn(
+          `Logout failed: client ID mismatch, expected: ${clientId}, got: ${verifiedPayload.sub}`,
+        );
         throw new HttpException('Invalid token for logout', HttpStatus.UNAUTHORIZED);
       }
 
@@ -374,8 +473,33 @@ export class AuthService {
       if (error instanceof HttpException) {
         throw error;
       }
-      this.logger.error(`Logout failed for client: ${clientId}`, error instanceof Error ? error.message : error);
+      this.logger.error(
+        `Logout failed for client: ${clientId}`,
+        error instanceof Error ? error.message : String(error),
+      );
       throw new HttpException('Logout failed', HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  /**
+   * Normalize and validate role from database
+   * 
+   * Ensures role is a valid UserRole enum value.
+   * Falls back to CLIENT if role is invalid or missing.
+   * 
+   * @private
+   */
+  private normalizeRole(role: string | undefined): UserRole | null {
+    if (!role) {
+      return null;
+    }
+
+    const normalizedRole = role.toUpperCase();
+    if (Object.values(UserRole).includes(normalizedRole as UserRole)) {
+      return normalizedRole as UserRole;
+    }
+
+    this.logger.warn(`Invalid role in database: ${role}, defaulting to CLIENT`);
+    return null;
   }
 }
