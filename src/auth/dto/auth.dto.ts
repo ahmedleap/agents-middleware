@@ -33,6 +33,10 @@ export class SignupDto {
   lastName: string = '';
 
   @IsString()
+  @IsNotEmpty()
+  dateOfBirth: string = ''; // ISO 8601 date string (YYYY-MM-DD) - REQUIRED
+
+  @IsString()
   @IsOptional()
   @Length(10, 32)
   phoneNumber?: string;

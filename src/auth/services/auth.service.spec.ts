@@ -26,6 +26,8 @@ describe('AuthService', () => {
     email: 'test@example.com',
     role: UserRole.CLIENT,
     jti: 'mock-jti-123',
+    iss: 'agents-of-leap',
+    aud: 'trading-middleware',
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 300,
   };

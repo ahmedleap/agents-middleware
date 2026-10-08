@@ -26,15 +26,6 @@ export interface AuthLoginResponse {
     lastName: string;
     role: UserRole;
   };
-  dashboard?: {
-    accounts?: Array<{
-      accountId: string;
-      name: string;
-      cashBalance: number;
-      status: string;
-    }>;
-    portfolioValue?: number;
-  };
 }
 
 export interface AuthRefreshResponse {
@@ -44,19 +35,13 @@ export interface AuthRefreshResponse {
 }
 
 /**
- * Updated Auth Signup Response with strongly typed role (defaults to CLIENT)
+ * Auth Signup Response - Confirmation only, no tokens
  */
 export interface AuthSignupResponse {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-  user: {
-    clientId: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    role: UserRole;
-  };
+  success: boolean;
+  message: string;
+  clientId: string;
+  email: string;
 }
 
 @Injectable()
@@ -109,20 +94,63 @@ export class AuthService {
   }
 
   /**
+   * Sync failed login attempts and lockout state to database
+   * Ensures database reflects current in-memory rate limit state
+   * 
+   * @private
+   */
+  private async syncLockoutStateToDatabase(email: string): Promise<void> {
+    try {
+      const lockoutTimeMs = this.rateLimitService.getLockoutTimeRemaining(email);
+      const isLocked = lockoutTimeMs > 0;
+      
+      if (isLocked) {
+        // Calculate locked_until timestamp
+        const now = Date.now();
+        const lockedUntilTime = new Date(now + lockoutTimeMs);
+        
+        // Account is locked - update both attempts and lockout time
+        await this.clientRepository.update(
+          { email },
+          { 
+            failed_login_attempts: 3, 
+            locked_until: lockedUntilTime 
+          }
+        );
+      }
+      // Note: We do NOT attempt to clear locked_until here.
+      // The database state is only cleared on successful login.
+    } catch (error) {
+      this.logger.warn(
+        `Failed to sync lockout state to database for ${email}: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+      );
+      // Don't fail the login process if database sync fails
+    }
+  }
+
+  /**
    * Sign up a new user with default CLIENT role
    * 
    * New users always receive CLIENT role.
    * ANALYST and ADMIN roles must be assigned via separate admin service.
+   * Date of birth is REQUIRED.
    */
   async signup(
     email: string,
     password: string,
     firstName: string,
     lastName: string,
+    dateOfBirth: string,
     phoneNumber?: string,
     country?: string,
   ): Promise<AuthSignupResponse> {
     try {
+      // Validate date of birth is provided
+      if (!dateOfBirth || dateOfBirth.trim().length === 0) {
+        throw new HttpException('Date of birth is required', HttpStatus.BAD_REQUEST);
+      }
+
       // Validate password
       const passwordValidation = this.validatePassword(password);
       if (!passwordValidation.valid) {
@@ -151,7 +179,10 @@ export class AuthService {
       client.last_name = lastName;
       client.phone = phoneNumber;
       client.country = country;
-      client.date_of_birth = new Date(); // Placeholder - should be collected from user
+      
+      // Set date of birth from parameter (required)
+      client.date_of_birth = new Date(dateOfBirth);
+      
       client.join_date = new Date();
       client.email_verified = false;
       client.auth_status = 'ACTIVE';
@@ -160,33 +191,11 @@ export class AuthService {
       await this.clientRepository.save(client);
       this.logger.log(`New user signed up with CLIENT role: ${email}, client_id: ${clientId}`);
 
-      // Generate token pair with sub claim (client ID) and required role
-      const tokenPair = this.jwtTokenService.generateTokenPair({
-        sub: clientId,
-        email,
-        role: UserRole.CLIENT,
-      });
-
-      // Store refresh token in database
-      await this.refreshTokenService.storeRefreshToken(
-        clientId,
-        tokenPair.refreshToken,
-        tokenPair.accessToken,
-        tokenPair.refreshTokenExpiresIn,
-        tokenPair.accessTokenExpiresIn,
-      );
-
       return {
-        accessToken: tokenPair.accessToken,
-        refreshToken: tokenPair.refreshToken,
-        expiresIn: tokenPair.accessTokenExpiresIn,
-        user: {
-          clientId,
-          email,
-          firstName,
-          lastName,
-          role: UserRole.CLIENT,
-        },
+        success: true,
+        message: 'Account created successfully. Please log in with your credentials.',
+        clientId,
+        email,
       };
     } catch (error) {
       if (error instanceof HttpException) {
@@ -203,7 +212,7 @@ export class AuthService {
    * 
    * Enforces rate limiting:
    * - 3 failed attempts → 15-minute lockout
-   * - Attempt during lockout → reset timer (no penalty)
+   * - Attempt during lockout → returns 429, timer does NOT extend
    * - Successful login → clear attempts
    * 
    * Retrieves role from database and includes it in generated tokens.
@@ -212,15 +221,13 @@ export class AuthService {
     try {
       // Check if account is currently locked out
       if (this.rateLimitService.isCurrentlyLocked(email)) {
-        // Reset lockout timer on attempt during lockout (no credential check)
-        this.rateLimitService.resetLockoutTimer(email);
-        
+        // DO NOT reset timer - lockout stays at original expiration time
         const lockoutTimeMs = this.rateLimitService.getLockoutTimeRemaining(email);
         const lockoutTimeSec = Math.ceil(lockoutTimeMs / 1000);
         
         this.logger.warn(
           `Login attempt during lockout for email: ${email}, ` +
-          `lockout reset, retry in ${lockoutTimeSec}s`,
+          `retry in ${lockoutTimeSec}s`,
         );
         
         throw new HttpException(
@@ -228,9 +235,6 @@ export class AuthService {
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
-
-      // Lockout expired (if was locked) - proceed with credential check
-      
       // Find user in local database
       const client = await this.clientRepository.findOne({
         where: { email },
@@ -239,6 +243,9 @@ export class AuthService {
       if (!client) {
         // Invalid username - record failed attempt
         const stillAllowed = this.rateLimitService.recordFailedAttempt(email);
+        
+        // Sync lockout state to database
+        await this.syncLockoutStateToDatabase(email);
         
         if (!stillAllowed) {
           // Account just locked
@@ -260,6 +267,9 @@ export class AuthService {
         // Invalid password - record failed attempt
         const stillAllowed = this.rateLimitService.recordFailedAttempt(email);
         
+        // Sync lockout state to database
+        await this.syncLockoutStateToDatabase(email);
+        
         if (!stillAllowed) {
           // Account just locked
           const lockoutTimeSec = Math.ceil(
@@ -274,30 +284,19 @@ export class AuthService {
         throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
       }
 
-      // Successful login - clear rate limit attempts
+      // Successful login - clear rate limit attempts and database state
       this.rateLimitService.clearAttempts(email);
+      
+      // Clear lockout state from database
+      await this.clientRepository.update(
+        { email },
+        { failed_login_attempts: 0, locked_until: undefined }
+      );
+      
       this.logger.log(`Successful login for email: ${email}`);
 
       // All regular users (clients) have CLIENT role
       const clientRole = UserRole.CLIENT;
-
-      // Get dashboard data from backend if available
-      let dashboard;
-      try {
-        const backendUser = await this.backendIntegrationService.authenticateUser(email, password);
-        if (backendUser.accounts) {
-          dashboard = {
-            accounts: backendUser.accounts,
-            portfolioValue: backendUser.portfolioValue,
-          };
-        }
-      } catch (backendError) {
-        this.logger.warn(
-          `Failed to get dashboard data from backend for ${email}: ` +
-          `${backendError instanceof Error ? backendError.message : String(backendError)}`,
-        );
-        // Don't fail login if backend is unavailable
-      }
 
       // Generate token pair with sub claim (client ID) and role from database
       const tokenPair = this.jwtTokenService.generateTokenPair({
@@ -326,7 +325,6 @@ export class AuthService {
           lastName: client.last_name,
           role: clientRole,
         },
-        dashboard,
       };
     } catch (error) {
       if (error instanceof HttpException) {

@@ -18,6 +18,7 @@ $TestPasswordWeak = "weak"
 $TestPasswordNoSpecial = "SecurePass123"
 $TestFirstName = "Test"
 $TestLastName = "User"
+$TestDOB = "1990-01-15" # ISO 8601 date format (YYYY-MM-DD)
 $RateLimitEmail = "ratelimit+$timestamp$random@example.com"
 
 # Global test variables
@@ -189,24 +190,20 @@ $signupBody = @{
     password = $TestPassword
     firstName = $TestFirstName
     lastName = $TestLastName
+    dateOfBirth = $TestDOB
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Creating user account"
 
 if ($result.StatusCode -eq 201) {
-    $AccessToken = Get-JsonValue $result.RawContent "accessToken"
-    $RefreshToken = Get-JsonValue $result.RawContent "refreshToken"
-    $ClientId = Get-JsonValue $result.RawContent "user.clientId"
-    $ResponseEmail = Get-JsonValue $result.RawContent "user.email"
-    $ResponseRole = Get-JsonValue $result.RawContent "user.role"
+    $ClientId = Get-JsonValue $result.RawContent "clientId"
+    $ResponseEmail = Get-JsonValue $result.RawContent "email"
     
     Write-Host "  Email: $ResponseEmail" -ForegroundColor Gray
-    Write-Host "  Role: $ResponseRole" -ForegroundColor Gray
     Write-Host "  Client ID: $ClientId" -ForegroundColor Gray
     Write-Host "  [PASS] Signup successful`n" -ForegroundColor Green
     
-    Verify-Database "SELECT client_id, email, role FROM clients WHERE email = '$TestEmail' LIMIT 1;" "User created in database"
-    Verify-Database "SELECT session_id FROM auth_sessions WHERE client_id = '$ClientId' AND revoked_at IS NULL LIMIT 1;" "Session created in database"
+    Verify-Database "SELECT client_id, email FROM clients WHERE email = '$TestEmail' LIMIT 1;" "User created in database"
 }
 else {
     Write-Host "  [FAIL] Signup failed (HTTP $($result.StatusCode))`n" -ForegroundColor Red
@@ -225,6 +222,7 @@ $signupBody = @{
     password = $TestPassword
     firstName = $TestFirstName
     lastName = $TestLastName
+    dateOfBirth = $TestDOB
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Attempting duplicate signup"
@@ -250,6 +248,7 @@ $signupBody = @{
     password = $TestPasswordWeak
     firstName = $TestFirstName
     lastName = $TestLastName
+    dateOfBirth = $TestDOB
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Attempting signup with weak password"
@@ -275,6 +274,7 @@ $signupBody = @{
     password = $TestPasswordNoSpecial
     firstName = $TestFirstName
     lastName = $TestLastName
+    dateOfBirth = $TestDOB
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Attempting signup without special character"
@@ -375,6 +375,7 @@ $signupBody = @{
     password = $TestPassword
     firstName = "RateLimit"
     lastName = "Test"
+    dateOfBirth = $TestDOB
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Creating rate limit test user"

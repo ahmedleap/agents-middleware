@@ -24,6 +24,7 @@ export class AuthController {
       signupDto.password,
       signupDto.firstName,
       signupDto.lastName,
+      signupDto.dateOfBirth,
       signupDto.phoneNumber,
       signupDto.country,
     );
