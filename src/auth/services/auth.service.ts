@@ -1,7 +1,7 @@
 import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import * as bcrypt from 'bcrypt';
+import bcrypt from 'bcrypt';
 import { JwtTokenService } from './jwt-token.service';
 import { RateLimitService } from './rate-limit.service';
 import { RefreshTokenService } from './refresh-token.service';

@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ConfigService } from './config/config.service';
@@ -35,11 +36,22 @@ async function bootstrap() {
   // Global exception filter
   app.useGlobalFilters(new HttpExceptionFilter());
 
+  // Swagger/OpenAPI documentation
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Trading Middleware API')
+    .setDescription('Authentication and authorization middleware API')
+    .setVersion('1.0.0')
+    .addBearerAuth()
+    .build();
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup(`${apiPrefix}/docs`, app, swaggerDocument);
+
   const port = configService.get('PORT', 3001);
   const nodeEnv = configService.get('NODE_ENV', 'development');
   
   await app.listen(port);
   console.log(`🚀 Application is running on: http://localhost:${port}/${apiPrefix}`);
+  console.log(`📚 Swagger docs available at: http://localhost:${port}/${apiPrefix}/docs`);
   console.log(`📝 Environment: ${nodeEnv}`);
 }
 

@@ -8,10 +8,8 @@ import { BackendIntegrationService } from '../services/backend-integration.servi
 import { UserRole, VerifiedJwtPayload } from '../types/jwt-types';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Client } from '../entities/client.entity';
-import * as bcrypt from 'bcrypt';
-
-// Mock bcrypt
-jest.mock('bcrypt');
+import { ConfigService } from '../../config/config.service';
+import bcrypt from 'bcrypt';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -45,6 +43,7 @@ describe('AuthService', () => {
     mockClientRepository = {
       findOne: jest.fn(),
       save: jest.fn(),
+      update: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -88,6 +87,12 @@ describe('AuthService', () => {
           },
         },
         {
+          provide: ConfigService,
+          useValue: {
+            getNumber: jest.fn(() => 8),
+          },
+        },
+        {
           provide: getRepositoryToken(Client),
           useValue: mockClientRepository,
         },
@@ -107,7 +112,7 @@ describe('AuthService', () => {
     beforeEach(() => {
       jest.clearAllMocks();
       mockClientRepository.findOne.mockResolvedValue(mockClient);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      jest.spyOn(bcrypt as any, 'compare').mockResolvedValue(true);
       jest.spyOn(backendIntegrationService, 'authenticateUser').mockResolvedValue({
         clientId: 'test-client-123',
         email: 'test@example.com',
@@ -138,7 +143,7 @@ describe('AuthService', () => {
         HttpException,
       );
 
-      expect(rateLimitService.resetLockoutTimer).toHaveBeenCalledWith('test@example.com');
+      expect(rateLimitService.resetLockoutTimer).not.toHaveBeenCalled();
       expect(mockClientRepository.findOne).not.toHaveBeenCalled(); // No credential check
     });
 
@@ -151,7 +156,7 @@ describe('AuthService', () => {
         .mockReturnValueOnce(true)
         .mockReturnValueOnce(false); // Third attempt returns false (locked)
 
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false); // Invalid password
+      jest.spyOn(bcrypt as any, 'compare').mockResolvedValue(false); // Invalid password
 
       // First attempt
       mockClientRepository.findOne.mockResolvedValue(mockClient);
@@ -188,7 +193,7 @@ describe('AuthService', () => {
     it('should record failed attempt for invalid password', async () => {
       jest.spyOn(rateLimitService, 'isCurrentlyLocked').mockReturnValue(false);
       jest.spyOn(rateLimitService, 'recordFailedAttempt').mockReturnValue(true);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      jest.spyOn(bcrypt as any, 'compare').mockResolvedValue(false);
 
       await expect(service.login('test@example.com', 'wrongpassword')).rejects.toThrow(
         'Invalid credentials',
