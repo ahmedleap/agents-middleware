@@ -82,8 +82,8 @@ export class JwtTokenService {
         email: payload.email,
         role: payload.role,
         jti: accessTokenJti,
-        iss: 'agents-of-leap', // Issuer
-        aud: 'trading-middleware', // Audience
+        iss: 'agents-middleware', // Issuer
+        aud: 'agents-backend', // Audience
       };
 
       // Refresh token payload - same structure, different JTI
@@ -92,8 +92,8 @@ export class JwtTokenService {
         email: payload.email,
         role: payload.role,
         jti: refreshTokenJti,
-        iss: 'agents-of-leap', // Issuer
-        aud: 'trading-middleware', // Audience
+        iss: 'agents-middleware', // Issuer
+        aud: 'agents-backend', // Audience
       };
 
       // Sign with private key using RS256 algorithm (asymmetric)
