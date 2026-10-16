@@ -251,6 +251,11 @@ describe('AuthService', () => {
         email: 'analyst@example.com',
         role: UserRole.ANALYST,
       });
+      expect(refreshTokenService.storeRefreshToken).toHaveBeenCalledWith(
+        'admin-123',
+        'mock-refresh-token',
+        600,
+      );
     });
 
     it('should reject a staff row with an unsupported role', async () => {

@@ -80,7 +80,7 @@ export class RefreshTokenService {
         return null;
       }
 
-      if (session.refresh_expires_at < now) {
+      if (session.refresh_expires_at <= now) {
         this.logger.warn(`Refresh token expired for client: ${clientId}`);
         return null;
       }
