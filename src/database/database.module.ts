@@ -4,6 +4,7 @@ import { ConfigModule } from '../config/config.module';
 import { ConfigService } from '../config/config.service';
 import { AuthSession } from '../auth/entities/auth-session.entity';
 import { Client } from '../auth/entities/client.entity';
+import { Admin } from '../auth/entities/admin.entity';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { Client } from '../auth/entities/client.entity';
         username: configService.get('DATABASE_USERNAME', 'postgres'),
         password: configService.get('DATABASE_PASSWORD', 'postgres'),
         database: configService.get('DATABASE_NAME', 'trading_db'),
-        entities: [AuthSession, Client],
+        entities: [AuthSession, Client, Admin],
         synchronize: false, // Use migrations instead
         logging: configService.isDevelopment(),
         ssl: configService.getBoolean('DATABASE_SSL', false),
@@ -27,7 +28,7 @@ import { Client } from '../auth/entities/client.entity';
         },
       }),
     }),
-    TypeOrmModule.forFeature([AuthSession, Client]),
+    TypeOrmModule.forFeature([AuthSession, Client, Admin]),
   ],
   exports: [TypeOrmModule],
 })

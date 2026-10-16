@@ -9,8 +9,9 @@ import { BackendIntegrationService } from './backend-integration.service';
 import { ConfigService } from '../../config/config.service';
 import { AuthSession } from '../entities/auth-session.entity';
 import { Client } from '../entities/client.entity';
-import { UserRole, VerifiedJwtPayload, TokenVerificationError, TokenErrorType } from '../types/jwt-types';
+import { AdminRole, UserRole, VerifiedJwtPayload, TokenVerificationError, TokenErrorType } from '../types/jwt-types';
 import { v4 as uuidv4 } from 'uuid';
+import { Admin } from '../entities/admin.entity';
 
 /**
  * Updated Auth Response with strongly typed role (never optional)
@@ -57,6 +58,8 @@ export class AuthService {
     private configService: ConfigService,
     @InjectRepository(Client)
     private clientRepository: Repository<Client>,
+    @InjectRepository(Admin)
+    private adminRepository: Repository<Admin>,
   ) {
     this.passwordMinLength = this.configService.getNumber('PASSWORD_MIN_LENGTH', 8);
   }
@@ -142,6 +145,7 @@ export class AuthService {
     firstName: string,
     lastName: string,
     dateOfBirth: string,
+    ssn: string,
     phoneNumber?: string,
     country?: string,
   ): Promise<AuthSignupResponse> {
@@ -149,6 +153,11 @@ export class AuthService {
       // Validate date of birth is provided
       if (!dateOfBirth || dateOfBirth.trim().length === 0) {
         throw new HttpException('Date of birth is required', HttpStatus.BAD_REQUEST);
+      }
+
+      const normalizedSsn = typeof ssn === 'string' ? ssn.replace(/-/g, '') : '';
+      if (!/^\d{9}$/.test(normalizedSsn)) {
+        throw new HttpException('A valid SSN is required', HttpStatus.BAD_REQUEST);
       }
 
       // Validate password
@@ -182,6 +191,7 @@ export class AuthService {
       
       // Set date of birth from parameter (required)
       client.date_of_birth = new Date(dateOfBirth);
+      client.ssn_last4 = normalizedSsn.slice(-4);
       
       client.join_date = new Date();
       client.email_verified = false;
@@ -309,9 +319,7 @@ export class AuthService {
       await this.refreshTokenService.storeRefreshToken(
         client.client_id,
         tokenPair.refreshToken,
-        tokenPair.accessToken,
         tokenPair.refreshTokenExpiresIn,
-        tokenPair.accessTokenExpiresIn,
       );
 
       return {
@@ -334,6 +342,79 @@ export class AuthService {
       this.logger.error(
         `Login failed for email: ${email}: ` +
         `${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new HttpException('Login failed', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Authenticate an ADMIN or ANALYST from the separate staff table.
+   * The role is always read from the database and is never accepted from the request.
+   */
+  async loginStaff(email: string, password: string): Promise<AuthLoginResponse> {
+    try {
+      if (this.rateLimitService.isCurrentlyLocked(email)) {
+        const lockoutTimeSec = Math.ceil(
+          this.rateLimitService.getLockoutTimeRemaining(email) / 1000,
+        );
+        throw new HttpException(
+          `Account locked due to too many failed login attempts. Try again in ${lockoutTimeSec} seconds.`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      const admin = await this.adminRepository.findOne({ where: { email } });
+      if (!admin || !Object.values(AdminRole).includes(admin.role)) {
+        this.rateLimitService.recordFailedAttempt(email);
+        throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
+      }
+
+      const passwordMatch = await bcrypt.compare(password, admin.password_hash);
+      if (!passwordMatch) {
+        const stillAllowed = this.rateLimitService.recordFailedAttempt(email);
+        if (!stillAllowed) {
+          const lockoutTimeSec = Math.ceil(
+            this.rateLimitService.getLockoutTimeRemaining(email) / 1000,
+          );
+          throw new HttpException(
+            `Account locked due to too many failed login attempts. Try again in ${lockoutTimeSec} seconds.`,
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+        throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
+      }
+
+      this.rateLimitService.clearAttempts(email);
+      const tokenPair = this.jwtTokenService.generateTokenPair({
+        sub: admin.admin_id,
+        email: admin.email,
+        role: admin.role === AdminRole.ADMIN ? UserRole.ADMIN : UserRole.ANALYST,
+      });
+
+      await this.refreshTokenService.storeRefreshToken(
+        admin.admin_id,
+        tokenPair.refreshToken,
+        tokenPair.refreshTokenExpiresIn,
+      );
+
+      return {
+        accessToken: tokenPair.accessToken,
+        refreshToken: tokenPair.refreshToken,
+        expiresIn: tokenPair.accessTokenExpiresIn,
+        user: {
+          clientId: admin.admin_id,
+          email: admin.email,
+          firstName: admin.first_name,
+          lastName: admin.last_name,
+          role: admin.role === AdminRole.ADMIN ? UserRole.ADMIN : UserRole.ANALYST,
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      this.logger.error(
+        `Staff login failed for email: ${email}: ${error instanceof Error ? error.message : String(error)}`,
       );
       throw new HttpException('Login failed', HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -390,9 +471,7 @@ export class AuthService {
       await this.refreshTokenService.updateRefreshToken(
         session.session_id,
         tokenPair.refreshToken,
-        tokenPair.accessToken,
         tokenPair.refreshTokenExpiresIn,
-        tokenPair.accessTokenExpiresIn,
       );
 
       this.logger.log(`Tokens refreshed for client: ${clientId}, role: ${verifiedPayload.role}`);
@@ -412,25 +491,6 @@ export class AuthService {
         error instanceof Error ? error.message : String(error),
       );
       throw new HttpException('Token refresh failed', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Validate an access token
-   * 
-   * Returns true only if token is valid (signature, expiration, algorithm all verified).
-   * This method does NOT perform database checks - it's for quick validation.
-   * 
-   * @param token - The access token to validate
-   * @returns true if token is valid and not expired
-   */
-  validateAccessToken(token: string): boolean {
-    try {
-      this.jwtTokenService.verifyToken(token);
-      return true;
-    } catch (error) {
-      // Verification failed - token is invalid or expired
-      return false;
     }
   }
 

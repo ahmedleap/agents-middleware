@@ -39,8 +39,8 @@ describe('AuthController', () => {
           provide: AuthService,
           useValue: {
             login: jest.fn(),
+            loginStaff: jest.fn(),
             refresh: jest.fn(),
-            validateAccessToken: jest.fn(),
             logout: jest.fn(),
           },
         },
@@ -94,24 +94,6 @@ describe('AuthController', () => {
         'test-client-123',
         'mock-refresh-token',
       );
-    });
-  });
-
-  describe('validateToken', () => {
-    it('should return valid true for valid token', () => {
-      jest.spyOn(authService, 'validateAccessToken').mockReturnValue(true);
-
-      const result = controller.validateToken('valid-token');
-
-      expect(result).toEqual({ valid: true });
-    });
-
-    it('should return valid false for invalid token', () => {
-      jest.spyOn(authService, 'validateAccessToken').mockReturnValue(false);
-
-      const result = controller.validateToken('invalid-token');
-
-      expect(result).toEqual({ valid: false });
     });
   });
 

@@ -12,6 +12,11 @@ export enum UserRole {
   ADMIN = 'ADMIN',
 }
 
+export enum AdminRole {
+  ADMIN = 'ADMIN',
+  ANALYST = 'ANALYST',
+}
+
 /**
  * JWT Standard Claims with Role
  * Payload structure for access and refresh tokens

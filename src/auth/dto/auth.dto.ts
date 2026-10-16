@@ -14,6 +14,19 @@ export class LoginDto {
   password: string = '';
 }
 
+export class StaffLoginDto {
+  @ApiProperty({ example: 'analyst@example.com' })
+  @IsEmail()
+  @IsNotEmpty()
+  email: string = '';
+
+  @ApiProperty({ example: 'SecurePass123!' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  password: string = '';
+}
+
 export class SignupDto {
   @ApiProperty({ example: 'user@example.com' })
   @IsEmail()
@@ -43,6 +56,14 @@ export class SignupDto {
   @IsString()
   @IsNotEmpty()
   dateOfBirth: string = ''; // ISO 8601 date string (YYYY-MM-DD) - REQUIRED
+
+  @ApiProperty({ example: '123-45-6789', description: 'US Social Security number; only the last four digits are stored' })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d{3}-?\d{2}-?\d{4}$/, {
+    message: 'SSN must contain 9 digits in the format 123-45-6789 or 123456789',
+  })
+  ssn: string = '';
 
   @ApiPropertyOptional({ example: '+12025550123' })
   @IsString()

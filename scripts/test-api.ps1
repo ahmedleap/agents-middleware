@@ -19,6 +19,7 @@ $TestPasswordNoSpecial = "SecurePass123"
 $TestFirstName = "Test"
 $TestLastName = "User"
 $TestDOB = "1990-01-15" # ISO 8601 date format (YYYY-MM-DD)
+$TestSsn = "123-45-6789"
 $RateLimitEmail = "ratelimit+$timestamp$random@example.com"
 
 # Global test variables
@@ -191,6 +192,7 @@ $signupBody = @{
     firstName = $TestFirstName
     lastName = $TestLastName
     dateOfBirth = $TestDOB
+    ssn = $TestSsn
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Creating user account"
@@ -223,6 +225,7 @@ $signupBody = @{
     firstName = $TestFirstName
     lastName = $TestLastName
     dateOfBirth = $TestDOB
+    ssn = $TestSsn
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Attempting duplicate signup"
@@ -249,6 +252,7 @@ $signupBody = @{
     firstName = $TestFirstName
     lastName = $TestLastName
     dateOfBirth = $TestDOB
+    ssn = $TestSsn
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Attempting signup with weak password"
@@ -275,6 +279,7 @@ $signupBody = @{
     firstName = $TestFirstName
     lastName = $TestLastName
     dateOfBirth = $TestDOB
+    ssn = $TestSsn
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Attempting signup without special character"
@@ -376,6 +381,7 @@ $signupBody = @{
     firstName = "RateLimit"
     lastName = "Test"
     dateOfBirth = $TestDOB
+    ssn = $TestSsn
 } | ConvertTo-Json
 
 $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/signup" -Body $signupBody -Description "Creating rate limit test user"
@@ -428,8 +434,8 @@ else {
         Write-Host "  [FAIL] Expected 429, got $($result.StatusCode)`n" -ForegroundColor Red
     }
     
-    # Attempt during lockout - should reset timer only
-    Write-Host "Phase 5: Attempt during lockout - timer reset (no penalty)" -ForegroundColor Gray
+    # Attempt during lockout - timer remains unchanged
+    Write-Host "Phase 5: Attempt during lockout - timer unchanged" -ForegroundColor Gray
     $loginBody = @{
         email = $RateLimitEmail
         password = $TestPassword
@@ -438,7 +444,7 @@ else {
     $result = Test-ApiEndpoint -Method POST -Endpoint "/auth/login" -Body $loginBody -Description "Attempt while locked"
     
     if ($result.StatusCode -eq 429) {
-        Write-Host "  [PASS] Still locked with timer reset (429)`n" -ForegroundColor Green
+        Write-Host "  [PASS] Still locked without extending timer (429)`n" -ForegroundColor Green
     }
     else {
         Write-Host "  [FAIL] Expected 429, got $($result.StatusCode)`n" -ForegroundColor Red
@@ -450,51 +456,9 @@ else {
 Write-Host ""
 
 # ============================================================================
-# TEST 10: Token Validation
+# TEST 10: Refresh Tokens
 # ============================================================================
-Write-Host "TEST 10: Token Validation" -ForegroundColor Yellow
-Write-Host "-" * 60
-
-$validateBody = @{
-    accessToken = $AccessToken
-} | ConvertTo-Json
-
-$result = Test-ApiEndpoint -Method POST -Endpoint "/auth/validate" -Body $validateBody -Description "Validating access token"
-
-if ($result.StatusCode -eq 200) {
-    Write-Host "  [PASS] Token validation works`n" -ForegroundColor Green
-}
-else {
-    Write-Host "  [FAIL] Token validation failed`n" -ForegroundColor Red
-}
-
-Write-Host ""
-
-# ============================================================================
-# TEST 11: Token Validation with Invalid Token
-# ============================================================================
-Write-Host "TEST 11: Token Validation with Invalid Token" -ForegroundColor Yellow
-Write-Host "-" * 60
-
-$validateBody = @{
-    accessToken = "invalid.token.here"
-} | ConvertTo-Json
-
-$result = Test-ApiEndpoint -Method POST -Endpoint "/auth/validate" -Body $validateBody -Description "Validating invalid token"
-
-if ($result.StatusCode -eq 200) {
-    Write-Host "  [PASS] Invalid token handled correctly`n" -ForegroundColor Green
-}
-else {
-    Write-Host "  [FAIL] Unexpected status code`n" -ForegroundColor Red
-}
-
-Write-Host ""
-
-# ============================================================================
-# TEST 12: Refresh Tokens
-# ============================================================================
-Write-Host "TEST 12: Refresh Tokens" -ForegroundColor Yellow
+Write-Host "TEST 10: Refresh Tokens" -ForegroundColor Yellow
 Write-Host "-" * 60
 
 $refreshBody = @{
@@ -520,9 +484,9 @@ else {
 Write-Host ""
 
 # ============================================================================
-# TEST 13: Refresh with Invalid Refresh Token
+# TEST 11: Refresh with Invalid Refresh Token
 # ============================================================================
-Write-Host "TEST 13: Refresh with Invalid Refresh Token" -ForegroundColor Yellow
+Write-Host "TEST 11: Refresh with Invalid Refresh Token" -ForegroundColor Yellow
 Write-Host "-" * 60
 
 $refreshBody = @{
@@ -542,9 +506,9 @@ else {
 Write-Host ""
 
 # ============================================================================
-# TEST 14: Refresh with Wrong Client ID
+# TEST 12: Refresh with Wrong Client ID
 # ============================================================================
-Write-Host "TEST 14: Refresh with Wrong Client ID" -ForegroundColor Yellow
+Write-Host "TEST 12: Refresh with Wrong Client ID" -ForegroundColor Yellow
 Write-Host "-" * 60
 
 $fakeClientId = "00000000-0000-0000-0000-000000000000"
@@ -565,9 +529,9 @@ else {
 Write-Host ""
 
 # ============================================================================
-# TEST 15: Logout
+# TEST 13: Logout
 # ============================================================================
-Write-Host "TEST 15: Logout" -ForegroundColor Yellow
+Write-Host "TEST 13: Logout" -ForegroundColor Yellow
 Write-Host "-" * 60
 
 $logoutBody = @{
@@ -589,9 +553,9 @@ else {
 Write-Host ""
 
 # ============================================================================
-# TEST 16: Use Revoked Refresh Token
+# TEST 14: Use Revoked Refresh Token
 # ============================================================================
-Write-Host "TEST 16: Use Revoked Refresh Token" -ForegroundColor Yellow
+Write-Host "TEST 14: Use Revoked Refresh Token" -ForegroundColor Yellow
 Write-Host "-" * 60
 
 $refreshBody = @{
@@ -611,9 +575,9 @@ else {
 Write-Host ""
 
 # ============================================================================
-# TEST 17: Logout with Invalid Token
+# TEST 15: Logout with Invalid Token
 # ============================================================================
-Write-Host "TEST 17: Logout with Invalid Token" -ForegroundColor Yellow
+Write-Host "TEST 15: Logout with Invalid Token" -ForegroundColor Yellow
 Write-Host "-" * 60
 
 $logoutBody = @{

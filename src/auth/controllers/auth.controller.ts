@@ -6,9 +6,9 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthService } from '../services/auth.service';
-import { LoginDto, SignupDto, RefreshTokenDto, LogoutDto } from '../dto/auth.dto';
+import { LoginDto, SignupDto, StaffLoginDto, RefreshTokenDto, LogoutDto } from '../dto/auth.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -28,6 +28,7 @@ export class AuthController {
       signupDto.firstName,
       signupDto.lastName,
       signupDto.dateOfBirth,
+      signupDto.ssn,
       signupDto.phoneNumber,
       signupDto.country,
     );
@@ -41,6 +42,14 @@ export class AuthController {
     return this.authService.login(loginDto.email, loginDto.password);
   }
 
+  @Post('admin/login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Authenticate an admin or analyst and return token pair' })
+  async loginStaff(@Body() loginDto: StaffLoginDto) {
+    this.logger.debug(`Staff login attempt for email: ${loginDto.email}`);
+    return this.authService.loginStaff(loginDto.email, loginDto.password);
+  }
+
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access and refresh tokens' })
@@ -50,23 +59,6 @@ export class AuthController {
       refreshTokenDto.clientId,
       refreshTokenDto.refreshToken,
     );
-  }
-
-  @Post('validate')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Validate an access token' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        accessToken: { type: 'string', example: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...' },
-      },
-      required: ['accessToken'],
-    },
-  })
-  validateToken(@Body('accessToken') accessToken: string) {
-    const isValid = this.authService.validateAccessToken(accessToken);
-    return { valid: isValid };
   }
 
   @Post('logout')

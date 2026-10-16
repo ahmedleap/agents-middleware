@@ -5,9 +5,10 @@ import { JwtTokenService } from '../services/jwt-token.service';
 import { RateLimitService } from '../services/rate-limit.service';
 import { RefreshTokenService } from '../services/refresh-token.service';
 import { BackendIntegrationService } from '../services/backend-integration.service';
-import { UserRole, VerifiedJwtPayload } from '../types/jwt-types';
+import { AdminRole, UserRole, VerifiedJwtPayload } from '../types/jwt-types';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Client } from '../entities/client.entity';
+import { Admin } from '../entities/admin.entity';
 import { ConfigService } from '../../config/config.service';
 import bcrypt from 'bcrypt';
 
@@ -18,6 +19,7 @@ describe('AuthService', () => {
   let refreshTokenService: RefreshTokenService;
   let backendIntegrationService: BackendIntegrationService;
   let mockClientRepository: any;
+  let mockAdminRepository: any;
 
   const mockVerifiedPayload: VerifiedJwtPayload = {
     sub: 'test-client-123',
@@ -44,6 +46,9 @@ describe('AuthService', () => {
       findOne: jest.fn(),
       save: jest.fn(),
       update: jest.fn(),
+    };
+    mockAdminRepository = {
+      findOne: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -95,6 +100,10 @@ describe('AuthService', () => {
         {
           provide: getRepositoryToken(Client),
           useValue: mockClientRepository,
+        },
+        {
+          provide: getRepositoryToken(Admin),
+          useValue: mockAdminRepository,
         },
       ],
     }).compile();
@@ -219,6 +228,47 @@ describe('AuthService', () => {
     });
   });
 
+  describe('loginStaff', () => {
+    it('should authenticate an analyst using the database role', async () => {
+      mockAdminRepository.findOne.mockResolvedValue({
+        admin_id: 'admin-123',
+        email: 'analyst@example.com',
+        first_name: 'Ana',
+        last_name: 'Lyst',
+        password_hash: 'hashed-password',
+        role: AdminRole.ANALYST,
+      });
+      jest.spyOn(bcrypt as any, 'compare').mockResolvedValue(true);
+
+      const result = await service.loginStaff('analyst@example.com', 'password123');
+
+      expect(result.user).toMatchObject({
+        clientId: 'admin-123',
+        role: UserRole.ANALYST,
+      });
+      expect(jwtTokenService.generateTokenPair).toHaveBeenCalledWith({
+        sub: 'admin-123',
+        email: 'analyst@example.com',
+        role: UserRole.ANALYST,
+      });
+    });
+
+    it('should reject a staff row with an unsupported role', async () => {
+      jest.clearAllMocks();
+      mockAdminRepository.findOne.mockResolvedValue({
+        admin_id: 'admin-123',
+        email: 'staff@example.com',
+        password_hash: 'hashed-password',
+        role: UserRole.CLIENT,
+      });
+
+      await expect(
+        service.loginStaff('staff@example.com', 'password123'),
+      ).rejects.toThrow(HttpException);
+      expect(bcrypt.compare).not.toHaveBeenCalled();
+    });
+  });
+
   describe('refresh', () => {
     beforeEach(() => {
       jest.clearAllMocks();
@@ -271,24 +321,6 @@ describe('AuthService', () => {
           role: UserRole.ANALYST,
         }),
       );
-    });
-  });
-
-  describe('validateAccessToken', () => {
-    it('should return true for valid token', () => {
-      jest.spyOn(jwtTokenService, 'verifyToken').mockReturnValue(mockVerifiedPayload);
-
-      const result = service.validateAccessToken('valid-token');
-      expect(result).toBe(true);
-    });
-
-    it('should return false for invalid token', () => {
-      jest.spyOn(jwtTokenService, 'verifyToken').mockImplementation(() => {
-        throw new Error('Invalid token');
-      });
-
-      const result = service.validateAccessToken('invalid-token');
-      expect(result).toBe(false);
     });
   });
 

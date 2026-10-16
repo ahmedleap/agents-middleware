@@ -75,6 +75,7 @@ Thumbs.db
 
 # Database
 *.sql
+!src/database/migrations/*.sql
 *.db
 *.sqlite
 postgres_data/

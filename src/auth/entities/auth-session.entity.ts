@@ -11,9 +11,6 @@ export class AuthSession {
   client_id!: string;
 
   @Column('text')
-  access_token_hash!: string;
-
-  @Column('text')
   refresh_token_hash!: string;
 
   @CreateDateColumn()
@@ -22,18 +19,9 @@ export class AuthSession {
   @UpdateDateColumn()
   last_active!: Date;
 
-  @Column('timestamp')
-  access_expires_at!: Date;
-
-  @Column('timestamp')
+  @Column('timestamp with time zone')
   refresh_expires_at!: Date;
 
-  @Column('timestamp', { nullable: true })
+  @Column('timestamp with time zone', { nullable: true })
   revoked_at?: Date | null;
-
-  @Column('varchar', { nullable: true, length: 512 })
-  device?: string;
-
-  @Column('varchar', { nullable: true, length: 128 })
-  location?: string;
 }

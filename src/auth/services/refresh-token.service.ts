@@ -27,24 +27,19 @@ export class RefreshTokenService {
   async storeRefreshToken(
     clientId: string,
     refreshToken: string,
-    accessToken: string,
     refreshTokenExpiresIn: number,
-    accessTokenExpiresIn: number,
   ): Promise<string> {
     const sessionId = uuidv4();
     const now = new Date();
     const refreshExpiresAt = new Date(now.getTime() + refreshTokenExpiresIn * 1000);
-    const accessExpiresAt = new Date(now.getTime() + accessTokenExpiresIn * 1000);
 
     const session = new AuthSession();
     session.session_id = sessionId;
     session.client_id = clientId;
     session.refresh_token_hash = this.hashToken(refreshToken);
-    session.access_token_hash = this.hashToken(accessToken);
     session.created_at = now;
     session.last_active = now;
     session.refresh_expires_at = refreshExpiresAt;
-    session.access_expires_at = accessExpiresAt;
 
     try {
       await this.authSessionRepository.save(session);
@@ -106,21 +101,16 @@ export class RefreshTokenService {
   async updateRefreshToken(
     sessionId: string,
     newRefreshToken: string,
-    newAccessToken: string,
     refreshTokenExpiresIn: number,
-    accessTokenExpiresIn: number,
   ): Promise<void> {
     const now = new Date();
     const refreshExpiresAt = new Date(now.getTime() + refreshTokenExpiresIn * 1000);
-    const accessExpiresAt = new Date(now.getTime() + accessTokenExpiresIn * 1000);
 
     try {
       await this.authSessionRepository.update(sessionId, {
         refresh_token_hash: this.hashToken(newRefreshToken),
-        access_token_hash: this.hashToken(newAccessToken),
         last_active: now,
         refresh_expires_at: refreshExpiresAt,
-        access_expires_at: accessExpiresAt,
       });
 
       this.logger.debug(`Updated refresh token for session: ${sessionId}`);

@@ -9,9 +9,10 @@ import { RefreshTokenService } from './services/refresh-token.service';
 import { AuthController } from './controllers/auth.controller';
 import { AuthSession } from './entities/auth-session.entity';
 import { Client } from './entities/client.entity';
+import { Admin } from './entities/admin.entity';
 
 @Module({
-  imports: [ConfigModule, TypeOrmModule.forFeature([AuthSession, Client])],
+  imports: [ConfigModule, TypeOrmModule.forFeature([AuthSession, Client, Admin])],
   providers: [
     AuthService,
     JwtTokenService,
