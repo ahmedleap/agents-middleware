@@ -2,15 +2,16 @@ version: '3.8'
 
 services:
   trading-middleware:
+    image: agents-middleware:${APP_VERSION:-0.4.0}
     build:
       context: .
       dockerfile: Dockerfile
     container_name: trading-middleware
     ports:
-      - "8082:8082"
+      - "${PORT:-8082}:${PORT:-8082}"
     environment:
       NODE_ENV: ${NODE_ENV:-development}
-      PORT: ${PORT:-3001}
+      PORT: ${PORT:-8082}
       API_PREFIX: ${API_PREFIX:-api/v1}
 
       # Database Configuration (external)
@@ -49,7 +50,7 @@ services:
 
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/v1/health', (response) => { if (response.statusCode !== 200) process.exit(1); response.resume(); }).on('error', () => process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:' + (process.env.PORT || 8082) + '/api/v1/health', (response) => { if (response.statusCode !== 200) process.exit(1); response.resume(); }).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 3s
       retries: 3
