@@ -29,8 +29,10 @@ export class AuthController {
       signupDto.lastName,
       signupDto.dateOfBirth,
       signupDto.ssn,
-      signupDto.phoneNumber,
+      signupDto.riskTolerance,
+      signupDto.portfolioSizeRange,
       signupDto.country,
+      signupDto.middleName,
     );
   }
 

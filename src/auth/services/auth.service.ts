@@ -1,4 +1,5 @@
 import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import type { PortfolioSizeRange, RiskTolerance } from '../dto/auth.dto';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import bcrypt from 'bcrypt';
@@ -146,8 +147,10 @@ export class AuthService {
     lastName: string,
     dateOfBirth: string,
     ssn: string,
-    phoneNumber?: string,
+    riskTolerance: RiskTolerance,
+    portfolioSizeRange: PortfolioSizeRange,
     country?: string,
+    middleName?: string,
   ): Promise<AuthSignupResponse> {
     try {
       // Validate date of birth is provided
@@ -186,7 +189,10 @@ export class AuthService {
       client.password_hash = passwordHash;
       client.first_name = firstName;
       client.last_name = lastName;
-      client.phone = phoneNumber;
+      // Optional; blank is stored as NULL, same as clearing it in the profile update
+      client.middle_name = middleName?.trim() || undefined;
+      client.risk_tolerance = riskTolerance;
+      client.portfolio_size_range = portfolioSizeRange;
       client.country = country;
       
       // Set date of birth from parameter (required)

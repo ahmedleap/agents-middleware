@@ -361,4 +361,44 @@ describe('AuthService', () => {
       ).rejects.toThrow(HttpException);
     });
   });
+
+  describe('signup', () => {
+    const signup = () => service.signup(
+      'new.client@example.com', 'Str0ng!Pass', 'Jane', 'Doe', '1990-01-15', '123-45-6789',
+      'AGGRESSIVE', 'BETWEEN_100K_200K',
+    );
+
+    beforeEach(() => {
+      mockClientRepository.findOne.mockResolvedValue(null);
+      mockClientRepository.save.mockImplementation(async (client: Client) => client);
+      jest.spyOn(bcrypt as any, 'hash').mockResolvedValue('hashed');
+    });
+
+    it('stores the risk tolerance and portfolio size, and no phone number', async () => {
+      await expect(signup()).resolves.toMatchObject({ success: true, email: 'new.client@example.com' });
+
+      const saved: Client = mockClientRepository.save.mock.calls[0][0];
+      expect(saved.risk_tolerance).toBe('AGGRESSIVE');
+      expect(saved.portfolio_size_range).toBe('BETWEEN_100K_200K');
+      expect(saved.phone).toBeUndefined();
+      expect(saved.ssn_last4).toBe('6789');
+    });
+
+    it('stores an optional middle name, and leaves a blank one empty', async () => {
+      await service.signup('a@example.com', 'Str0ng!Pass', 'Jane', 'Doe', '1990-01-15', '123456789',
+        'MODERATE', 'UNDER_50K', undefined, '  Marie  ');
+      await service.signup('b@example.com', 'Str0ng!Pass', 'Jane', 'Doe', '1990-01-15', '123456789',
+        'MODERATE', 'UNDER_50K', undefined, '   ');
+
+      expect(mockClientRepository.save.mock.calls[0][0].middle_name).toBe('Marie');
+      expect(mockClientRepository.save.mock.calls[1][0].middle_name).toBeUndefined();
+    });
+
+    it('rejects an email that is already registered', async () => {
+      mockClientRepository.findOne.mockResolvedValue({ client_id: 'existing' });
+
+      await expect(signup()).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
+      expect(mockClientRepository.save).not.toHaveBeenCalled();
+    });
+  });
 });
