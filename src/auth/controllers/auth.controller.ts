@@ -32,6 +32,7 @@ export class AuthController {
       signupDto.riskTolerance,
       signupDto.portfolioSizeRange,
       signupDto.country,
+      signupDto.middleName,
     );
   }
 

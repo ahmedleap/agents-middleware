@@ -33,6 +33,11 @@ describe('SignupDto', () => {
       .toEqual(expect.arrayContaining(['riskTolerance', 'portfolioSizeRange']));
   });
 
+  it('accepts an optional middle name up to 50 characters', async () => {
+    expect(await errorsFor({ ...valid, middleName: 'Marie' })).toEqual([]);
+    expect(await errorsFor({ ...valid, middleName: 'x'.repeat(51) })).toEqual(['middleName']);
+  });
+
   it('no longer accepts a phone number', async () => {
     expect(await errorsFor({ ...valid, phoneNumber: '2025550123' })).toEqual(['phoneNumber']);
   });

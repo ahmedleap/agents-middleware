@@ -1,4 +1,4 @@
-import { IsEmail, IsString, IsNotEmpty, MinLength, IsOptional, Matches, Length, IsIn } from 'class-validator';
+import { IsEmail, IsString, IsNotEmpty, MinLength, MaxLength, IsOptional, Matches, Length, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 // Same values as the clients.risk_tolerance / clients.portfolio_size_range Postgres enums
@@ -63,6 +63,12 @@ export class SignupDto {
   @IsString()
   @IsNotEmpty()
   lastName: string = '';
+
+  @ApiPropertyOptional({ example: 'Marie', description: 'Optional; same 50-character limit as the backend profile update' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  middleName?: string;
 
   @ApiProperty({ example: '1990-01-15', description: 'ISO 8601 date string (YYYY-MM-DD)' })
   @IsString()

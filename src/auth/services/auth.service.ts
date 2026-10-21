@@ -150,6 +150,7 @@ export class AuthService {
     riskTolerance: RiskTolerance,
     portfolioSizeRange: PortfolioSizeRange,
     country?: string,
+    middleName?: string,
   ): Promise<AuthSignupResponse> {
     try {
       // Validate date of birth is provided
@@ -188,6 +189,8 @@ export class AuthService {
       client.password_hash = passwordHash;
       client.first_name = firstName;
       client.last_name = lastName;
+      // Optional; blank is stored as NULL, same as clearing it in the profile update
+      client.middle_name = middleName?.trim() || undefined;
       client.risk_tolerance = riskTolerance;
       client.portfolio_size_range = portfolioSizeRange;
       client.country = country;

@@ -384,6 +384,16 @@ describe('AuthService', () => {
       expect(saved.ssn_last4).toBe('6789');
     });
 
+    it('stores an optional middle name, and leaves a blank one empty', async () => {
+      await service.signup('a@example.com', 'Str0ng!Pass', 'Jane', 'Doe', '1990-01-15', '123456789',
+        'MODERATE', 'UNDER_50K', undefined, '  Marie  ');
+      await service.signup('b@example.com', 'Str0ng!Pass', 'Jane', 'Doe', '1990-01-15', '123456789',
+        'MODERATE', 'UNDER_50K', undefined, '   ');
+
+      expect(mockClientRepository.save.mock.calls[0][0].middle_name).toBe('Marie');
+      expect(mockClientRepository.save.mock.calls[1][0].middle_name).toBeUndefined();
+    });
+
     it('rejects an email that is already registered', async () => {
       mockClientRepository.findOne.mockResolvedValue({ client_id: 'existing' });
 
