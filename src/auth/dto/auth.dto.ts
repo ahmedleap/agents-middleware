@@ -1,5 +1,17 @@
-import { IsEmail, IsString, IsNotEmpty, MinLength, IsOptional, Matches, Length } from 'class-validator';
+import { IsEmail, IsString, IsNotEmpty, MinLength, IsOptional, Matches, Length, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+// Same values as the clients.risk_tolerance / clients.portfolio_size_range Postgres enums
+export const RISK_TOLERANCES = ['CONSERVATIVE', 'MODERATE', 'AGGRESSIVE'] as const;
+export const PORTFOLIO_SIZE_RANGES = [
+  'UNDER_50K',
+  'BETWEEN_50K_100K',
+  'BETWEEN_100K_200K',
+  'BETWEEN_200K_500K',
+  'OVER_500K',
+] as const;
+export type RiskTolerance = (typeof RISK_TOLERANCES)[number];
+export type PortfolioSizeRange = (typeof PORTFOLIO_SIZE_RANGES)[number];
 
 export class LoginDto {
   @ApiProperty({ example: 'user@example.com' })
@@ -65,11 +77,14 @@ export class SignupDto {
   })
   ssn: string = '';
 
-  @ApiPropertyOptional({ example: '+12025550123' })
-  @IsString()
-  @IsOptional()
-  @Length(10, 32)
-  phoneNumber?: string;
+  @ApiProperty({ example: 'MODERATE', enum: RISK_TOLERANCES })
+  @IsIn(RISK_TOLERANCES, { message: `riskTolerance must be one of: ${RISK_TOLERANCES.join(', ')}` })
+  // Empty default (like the other fields) so a missing value fails @IsIn instead of being filled in
+  riskTolerance: RiskTolerance = '' as RiskTolerance;
+
+  @ApiProperty({ example: 'BETWEEN_50K_100K', enum: PORTFOLIO_SIZE_RANGES })
+  @IsIn(PORTFOLIO_SIZE_RANGES, { message: `portfolioSizeRange must be one of: ${PORTFOLIO_SIZE_RANGES.join(', ')}` })
+  portfolioSizeRange: PortfolioSizeRange = '' as PortfolioSizeRange;
 
   @ApiPropertyOptional({ example: 'US', description: 'ISO 2-letter country code' })
   @IsString()
