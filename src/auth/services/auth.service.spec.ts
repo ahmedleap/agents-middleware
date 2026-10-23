@@ -81,8 +81,9 @@ describe('AuthService', () => {
           useValue: {
             storeRefreshToken: jest.fn(),
             validateRefreshToken: jest.fn(() => ({ session_id: 'session-123' })),
-            updateRefreshToken: jest.fn(),
+            rotateRefreshToken: jest.fn(),
             revokeRefreshToken: jest.fn(),
+            revokeAllSessions: jest.fn(),
           },
         },
         {
@@ -142,6 +143,10 @@ describe('AuthService', () => {
       expect(result.user.email).toBe('test@example.com');
       expect(result.user.role).toBe(UserRole.CLIENT);
       expect(rateLimitService.clearAttempts).toHaveBeenCalledWith('test@example.com');
+      expect(refreshTokenService.revokeAllSessions).toHaveBeenCalledWith('test-client-123');
+      expect(jest.mocked(refreshTokenService.revokeAllSessions).mock.invocationCallOrder[0]).toBeLessThan(
+        jest.mocked(refreshTokenService.storeRefreshToken).mock.invocationCallOrder[0],
+      );
     });
 
     it('should throw error if account is locked out', async () => {
@@ -246,6 +251,7 @@ describe('AuthService', () => {
         clientId: 'admin-123',
         role: UserRole.ANALYST,
       });
+      expect(refreshTokenService.revokeAllSessions).toHaveBeenCalledWith('admin-123');
       expect(jwtTokenService.generateTokenPair).toHaveBeenCalledWith({
         sub: 'admin-123',
         email: 'analyst@example.com',
@@ -290,6 +296,13 @@ describe('AuthService', () => {
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
       expect(result).toHaveProperty('expiresIn');
+      expect(refreshTokenService.rotateRefreshToken).toHaveBeenCalledWith(
+        'session-123',
+        'test-client-123',
+        'mock-refresh-token',
+        'mock-refresh-token',
+        600,
+      );
     });
 
     it('should throw error for invalid refresh token', async () => {

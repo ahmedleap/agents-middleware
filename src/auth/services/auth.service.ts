@@ -314,6 +314,9 @@ export class AuthService {
       // All regular users (clients) have CLIENT role
       const clientRole = UserRole.CLIENT;
 
+      // A fresh login replaces any previous sessions for this identity.
+      await this.refreshTokenService.revokeAllSessions(client.client_id);
+
       // Generate token pair with sub claim (client ID) and role from database
       const tokenPair = this.jwtTokenService.generateTokenPair({
         sub: client.client_id,
@@ -391,6 +394,9 @@ export class AuthService {
       }
 
       this.rateLimitService.clearAttempts(email);
+        // A fresh login replaces any previous sessions for this identity.
+        await this.refreshTokenService.revokeAllSessions(admin.admin_id);
+
       const tokenPair = this.jwtTokenService.generateTokenPair({
         sub: admin.admin_id,
         email: admin.email,
@@ -473,9 +479,11 @@ export class AuthService {
         role: verifiedPayload.role,
       });
 
-      // Update refresh token in database
-      await this.refreshTokenService.updateRefreshToken(
+      // Revoke the consumed refresh token and persist the rotated token in a new session.
+      await this.refreshTokenService.rotateRefreshToken(
         session.session_id,
+        clientId,
+        refreshToken,
         tokenPair.refreshToken,
         tokenPair.refreshTokenExpiresIn,
       );

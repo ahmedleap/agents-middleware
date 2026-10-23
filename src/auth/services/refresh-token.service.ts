@@ -96,25 +96,51 @@ export class RefreshTokenService {
   }
 
   /**
-   * Update refresh token (on refresh endpoint)
+   * Revoke the consumed refresh token and create a new session for its replacement.
    */
-  async updateRefreshToken(
+  async rotateRefreshToken(
     sessionId: string,
+    clientId: string,
+    currentRefreshToken: string,
     newRefreshToken: string,
     refreshTokenExpiresIn: number,
   ): Promise<void> {
     const now = new Date();
     const refreshExpiresAt = new Date(now.getTime() + refreshTokenExpiresIn * 1000);
+    const nextSession = new AuthSession();
+    nextSession.session_id = uuidv4();
+    nextSession.client_id = clientId;
+    nextSession.refresh_token_hash = this.hashToken(newRefreshToken);
+    nextSession.created_at = now;
+    nextSession.last_active = now;
+    nextSession.refresh_expires_at = refreshExpiresAt;
 
     try {
-      await this.authSessionRepository.update(sessionId, {
-        refresh_token_hash: this.hashToken(newRefreshToken),
-        last_active: now,
-        refresh_expires_at: refreshExpiresAt,
+      await this.authSessionRepository.manager.transaction(async (manager) => {
+        const result = await manager
+          .createQueryBuilder()
+          .update(AuthSession)
+          .set({ revoked_at: now })
+          .where('session_id = :sessionId', { sessionId })
+          .andWhere('client_id = :clientId', { clientId })
+          .andWhere('refresh_token_hash = :tokenHash', {
+            tokenHash: this.hashToken(currentRefreshToken),
+          })
+          .andWhere('revoked_at IS NULL')
+          .execute();
+
+        if (!result.affected) {
+          throw new HttpException('Invalid or expired refresh token', HttpStatus.UNAUTHORIZED);
+        }
+
+        await manager.save(nextSession);
       });
 
-      this.logger.debug(`Updated refresh token for session: ${sessionId}`);
+      this.logger.debug(`Rotated refresh token for session: ${sessionId}`);
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       this.logger.error(`Failed to update refresh token for session: ${sessionId}`, error);
       throw new HttpException(
         'Failed to refresh token',
